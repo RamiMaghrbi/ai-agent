@@ -15,8 +15,9 @@ sys.stderr.reconfigure(encoding="utf-8")
 
 app = FastAPI(title="Dental RAG Assistant")
 
+backend = os.getenv("DENTAL_LLM_BACKEND", "groq")
 vectordb = get_or_create_vectorstore()
-qa = create_qa_chain(vectordb)
+qa = create_qa_chain(vectordb, backend=backend)
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
