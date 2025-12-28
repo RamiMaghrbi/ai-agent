@@ -10,6 +10,8 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableLambda
 from langchain_chroma import Chroma
 
+from .reranker import rerank
+
 LLM_MODEL_NAME = "llama3.1"
 
 DENTAL_KEYWORDS = [
@@ -129,9 +131,22 @@ def _is_child(text: str) -> bool:
 
 
 def create_qa_chain(vectordb: Chroma, backend: str = "groq") -> RunnableLambda:
+    rerank_enabled = (os.getenv("DENTAL_USE_RERANKER", "false") or "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    rerank_candidates = int(os.getenv("DENTAL_RERANK_CANDIDATES", "8"))
+    rerank_topk = int(os.getenv("DENTAL_RERANK_TOPK", "4"))
+    rerank_model = os.getenv(
+        "DENTAL_RERANK_MODEL", "Omartificial-Intelligence-Space/ARA-Reranker-V1"
+    )
+    if rerank_enabled:
+        print(f"🔁 Reranker enabled: {rerank_model}")
+
     retriever = vectordb.as_retriever(
         search_type="similarity_score_threshold",
-        search_kwargs={"k": 8, "score_threshold": 0.4},
+        search_kwargs={"k": rerank_candidates, "score_threshold": 0.4},
     )
 
     llm = get_llm(backend=backend)
@@ -250,6 +265,12 @@ def create_qa_chain(vectordb: Chroma, backend: str = "groq") -> RunnableLambda:
         rewritten = rewrite_chain.invoke({"question": question})
 
         docs = retriever.invoke(rewritten)
+
+        if rerank_enabled and docs:
+            before = len(docs)
+            docs = rerank(question, docs, top_k=rerank_topk)
+            print(f"🔁 Reranked docs: before={before}, after={len(docs)}")
+
         context = "\n\n".join(doc.page_content for doc in docs)
 
         if not docs or not context.strip():
